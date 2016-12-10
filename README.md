@@ -1,3 +1,5 @@
+[![Build status](https://ci.appveyor.com/api/projects/status/edcc4iss127v7vnp?svg=true)](https://ci.appveyor.com/project/svroonland/twinrx)
+
 # TwinRx
 TwinRx is a library for connecting a .NET application with a Beckhoff TwinCAT PLC program via Reactive Extensions (Rx) over ADS.
 
