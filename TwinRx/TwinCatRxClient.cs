@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
+using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Threading;
 using TwinCAT.Ads;
 
 namespace TwinRx
@@ -28,18 +31,26 @@ namespace TwinRx
             _defaultCycleTime = defaultCycleTime;
             _maxDelay = maxDelay;
 
-            client.Synchronize = false;
+            client.Synchronize = false; // This makes notifications come in on a ThreadPool thread instead of the UI thread
             client.AdsNotificationEx += client_AdsNotificationEx;
         }
 
         /// <summary>
         /// Creates an Observable for a PLC variable
         /// 
+        /// Values are emitted when the PLC variable changes, with a minimum interval of `cycleTime` ms.
+        /// 
         /// Created observables are ReplaySubjects, Subjects that always replay the latest value to new subscribers. This
         /// is done to avoid race conditions between subscription and the first ADS notification. It also ensures that 
         /// subscribers always have access to the latest value of the PLC variable
         /// 
         /// TwinCAT ADS's notification mechanism will always do an initial notification with the current variable's value
+        /// 
+        /// The actual ADS variable handle is only created when the first subscription to the Observable is made. The handle
+        /// is deleted only when the last subscription is disposed. 
+        /// 
+        /// Depending on the client's usage pattern, it's recommended to dispose any subscriptions. Alternatively
+        /// they will be disposed when the application exists.
         /// 
         /// Supported PLC variable types are, together with their .NET types:
         /// * BOOL (bool)
@@ -63,24 +74,36 @@ namespace TwinRx
             EnsureAdsClientIsConnected();
             EnsureTypeIsSupported<T>();
 
-            var subject = new ReplaySubject<T>(1);
-
-            var notification = new VariableNotification { subject = subject, type = typeof(T) };
-
-            cycleTime = cycleTime == -1 ? _defaultCycleTime : cycleTime;
-
-            // We do not use the return value (notification handle)
-            if (typeof(T) == typeof(string))
+            // Use Observable.Create together with RefCount() to be able to delete the device notification when all of
+            // the observable's subscriptions are disposed.
+            return Observable.Create<T>(observer =>
             {
-                _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay, notification,
-                    typeof(T), new[] { 256 });
-            }
-            else
-            {
-                _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay, notification, typeof(T));
-            }
+                var subject = new Subject<T>();
 
-            return subject;
+                var notification = new VariableNotification { subject = subject, type = typeof(T) };
+
+                cycleTime = cycleTime == -1 ? _defaultCycleTime : cycleTime;
+
+                // We do not use the return value (notification handle)
+                int handleId;
+                if (typeof(T) == typeof(string))
+                {
+                    handleId = _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay,
+                        notification,
+                        typeof(T), new[] { 256 });
+                }
+                else
+                {
+                    _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay, notification, typeof(T));
+                    handleId = _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay,
+                        notification, typeof(T));
+                }
+
+                return new CompositeDisposable(
+                    subject.Subscribe(observer),
+                    Disposable.Create(() => _client.DeleteDeviceNotification(handleId))
+                    );
+            }).Replay().RefCount();
         }
 
         private static void EnsureTypeIsSupported<T>()
@@ -139,7 +162,7 @@ namespace TwinRx
         {
             if (notification.type != typeof(T)) return;
 
-            var subject = (ReplaySubject<T>)notification.subject;
+            var subject = (IObserver<T>)notification.subject;
             try
             {
                 T value = (T)e.Value;
@@ -152,12 +175,12 @@ namespace TwinRx
         }
 
         /// <summary>
-        /// Observe an observable and write values to a PLC variable
+        /// Subscribe to an observable and write the emitted values to a PLC variable
         /// </summary>
         /// <typeparam name="T"></typeparam>
         /// <param name="variableName"></param>
         /// <param name="observable"></param>
-        /// <returns></returns>
+        /// <returns>An IDisposable that can be disposed when it's no longer desired to write the values in the observable</returns>
         public IDisposable StreamTo<T>(string variableName, IObservable<T> observable)
         {
             EnsureAdsClientIsConnected();
@@ -179,11 +202,7 @@ namespace TwinRx
             });
 
             // Return an IDisposable that, when disposed, stops listening to the Observable but also deletes the variable handle
-            return Disposable.Create(() =>
-            {
-                subscription.Dispose();
-                _client.DeleteVariableHandle(variableHandle);
-            });
+            return new CompositeDisposable(subscription, Disposable.Create(() => _client.DeleteVariableHandle(variableHandle)));
         }
 
         private void EnsureAdsClientIsConnected()
