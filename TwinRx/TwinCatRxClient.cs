@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using System.Threading;
 using TwinCAT.Ads;
 
 namespace TwinRx
@@ -71,7 +71,6 @@ namespace TwinRx
         /// <returns>The BehaviorSubject as IObservable</returns>
         public IObservable<T> ObservableFor<T>(string variableName, int cycleTime = -1)
         {
-            EnsureAdsClientIsConnected();
             EnsureTypeIsSupported<T>();
 
             // Use Observable.Create together with RefCount() to be able to delete the device notification when all of
@@ -79,6 +78,9 @@ namespace TwinRx
             return Observable.Create<T>(observer =>
             {
                 var subject = new Subject<T>();
+
+                // Subscribe before we register the notification to avoid a race condition
+                var subscription = subject.Subscribe(observer);
 
                 var notification = new VariableNotification { subject = subject, type = typeof(T) };
 
@@ -94,13 +96,12 @@ namespace TwinRx
                 }
                 else
                 {
-                    _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay, notification, typeof(T));
-                    handleId = _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay,
+                    handleId = _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime,  _maxDelay,
                         notification, typeof(T));
                 }
 
                 return new CompositeDisposable(
-                    subject.Subscribe(observer),
+                    subscription,
                     Disposable.Create(() => _client.DeleteDeviceNotification(handleId))
                     );
             }).Replay().RefCount();
@@ -138,7 +139,7 @@ namespace TwinRx
         {
             var notification = e.UserData as VariableNotification;
             if (notification == null) return; // This is a notification created externally to the TwinCatRxClient, ignore it
-
+            
             // Read the variable associated with the
             HandleNotificationIfForType<bool>(notification, e);
             HandleNotificationIfForType<byte>(notification, e);
@@ -176,54 +177,66 @@ namespace TwinRx
 
         /// <summary>
         /// Subscribe to an observable and write the emitted values to a PLC variable
+        /// 
+        /// Use this method to regularly write values to PLC variable. For one-off writes, use the Write() method
         /// </summary>
         /// <typeparam name="T"></typeparam>
-        /// <param name="variableName"></param>
-        /// <param name="observable"></param>
+        /// <param name="variableName">Name of the PLC variable</param>
+        /// <param name="observable">Observable that emits values to write</param>
+        /// <param name="scheduler">Scheduler to execute the subscription on. By default uses the scheduler the Observable runs on</param>
         /// <returns>An IDisposable that can be disposed when it's no longer desired to write the values in the observable</returns>
-        public IDisposable StreamTo<T>(string variableName, IObservable<T> observable)
+        public IDisposable StreamTo<T>(string variableName, IObservable<T> observable, IScheduler scheduler = null)
         {
-            EnsureAdsClientIsConnected();
             EnsureTypeIsSupported<T>();
+
+            scheduler = scheduler ?? Scheduler.Immediate;
 
             int variableHandle = _client.CreateVariableHandle(variableName);
 
-            var subscription = observable.Subscribe(value =>
-            {
-                if (typeof(T) == typeof(string))
-                {
-                    // ReSharper disable once PossibleNullReferenceException
-                    _client.WriteAny(variableHandle, value, new[] { (value as string).Length });
-                }
-                else
-                {
-                    _client.WriteAny(variableHandle, value);
-                }
-            });
+            var subscription = observable.ObserveOn(scheduler).Subscribe(value => WriteWithHandle(variableHandle, value));
 
             // Return an IDisposable that, when disposed, stops listening to the Observable but also deletes the variable handle
             return new CompositeDisposable(subscription, Disposable.Create(() => _client.DeleteVariableHandle(variableHandle)));
         }
 
-        private void EnsureAdsClientIsConnected()
+        /// <summary>
+        /// Writes a value to a PLC variable once
+        /// 
+        /// This method is a convenience method over the TcAdsClient. Use it method to write to values once, consider using StreamTo
+        /// to regularly write values (using a source observable)
+        /// 
+        /// The write is executed on the ThreadPool and can optionally be observed to know when the write is done
+        /// </summary>
+        /// <typeparam name="T">Type of the value</typeparam>
+        /// <param name="variableName">Name of the PLC variable</param>
+        /// <param name="value">Value to write</param>
+        /// <param name="scheduler">Scheduler to execute the write to, by default uses the system's default scheduler</param>
+        public IObservable<Unit> Write<T>(string variableName, T value, IScheduler scheduler = null)
         {
-            if (!_client.IsConnected) throw new InvalidOperationException("TcAdsClient is not connected");
+            return Observable.Start(() =>
+            {
+                try
+                {
+                    WriteWithHandle(_client.CreateVariableHandle(variableName), value);
+                }
+                finally
+                {
+                    _client.DeleteVariableHandle(_client.CreateVariableHandle(variableName));
+                }
+            }, scheduler ?? Scheduler.Default);
         }
-    }
 
-    /// <summary>
-    /// Information about a variable notification: its type and its Subject
-    /// </summary>
-    internal class VariableNotification
-    {
-        /// <summary>
-        /// Type of the variable
-        /// </summary>
-        public Type type;
-
-        /// <summary>
-        /// The Subject[Type] instance, where Type is not known statically
-        /// </summary>
-        public object subject;
+        private void WriteWithHandle<T>(int variableHandle, T value)
+        {
+            if (typeof(T) == typeof(string))
+            {
+                // ReSharper disable once PossibleNullReferenceException
+                _client.WriteAny(variableHandle, value, new[] { (value as string).Length });
+            }
+            else
+            {
+                _client.WriteAny(variableHandle, value);
+            }
+        }
     }
 }
