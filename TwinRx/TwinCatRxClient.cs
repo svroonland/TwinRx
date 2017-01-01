@@ -1,11 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
-using System.Reactive.Subjects;
 using TwinCAT.Ads;
 
 namespace TwinRx
@@ -18,6 +16,7 @@ namespace TwinRx
         private readonly TcAdsClient _client;
         private readonly int _defaultCycleTime;
         private readonly int _maxDelay;
+        private readonly IObservable<EventPattern<AdsNotificationExEventArgs>> _notifications;
 
         /// <summary>
         /// Constructor
@@ -32,7 +31,9 @@ namespace TwinRx
             _maxDelay = maxDelay;
 
             client.Synchronize = false; // This makes notifications come in on a ThreadPool thread instead of the UI thread
-            client.AdsNotificationEx += client_AdsNotificationEx;
+
+            _notifications = Observable.FromEventPattern<AdsNotificationExEventHandler, AdsNotificationExEventArgs>(
+h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
         }
 
         /// <summary>
@@ -73,38 +74,10 @@ namespace TwinRx
         {
             EnsureTypeIsSupported<T>();
 
-            // Use Observable.Create together with RefCount() to be able to delete the device notification when all of
-            // the observable's subscriptions are disposed.
-            return Observable.Create<T>(observer =>
-            {
-                var subject = new Subject<T>();
-
-                // Subscribe before we register the notification to avoid a race condition
-                var subscription = subject.Subscribe(observer);
-
-                var notification = new VariableNotification { subject = subject, type = typeof(T) };
-
-                cycleTime = cycleTime == -1 ? _defaultCycleTime : cycleTime;
-
-                // We do not use the return value (notification handle)
-                int handleId;
-                if (typeof(T) == typeof(string))
-                {
-                    handleId = _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay,
-                        notification,
-                        typeof(T), new[] { 256 });
-                }
-                else
-                {
-                    handleId = _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime,  _maxDelay,
-                        notification, typeof(T));
-                }
-
-                return new CompositeDisposable(
-                    subscription,
-                    Disposable.Create(() => _client.DeleteDeviceNotification(handleId))
-                    );
-            }).Replay().RefCount();
+            return Observable.Using(() => CreateNotificationRegistration<T>(variableName, cycleTime),
+                r =>
+                    _notifications.Select(e => e.EventArgs).Where(e => e.NotificationHandle == r.HandleId)
+                        .Select(e => (T) e.Value)).Replay().RefCount();
         }
 
         private static void EnsureTypeIsSupported<T>()
@@ -129,50 +102,23 @@ namespace TwinRx
             }
         }
 
-        /// <summary>
-        /// Called by the TcAdsClient for variable change notifications
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        [SuppressMessage("ReSharper", "RedundantTypeArgumentsOfMethod")]
-        void client_AdsNotificationEx(object sender, AdsNotificationExEventArgs e)
+        private NotificationRegistration CreateNotificationRegistration<T>(string variableName, int cycleTime)
         {
-            var notification = e.UserData as VariableNotification;
-            if (notification == null) return; // This is a notification created externally to the TwinCatRxClient, ignore it
-            
-            // Read the variable associated with the
-            HandleNotificationIfForType<bool>(notification, e);
-            HandleNotificationIfForType<byte>(notification, e);
-            HandleNotificationIfForType<sbyte>(notification, e);
-            HandleNotificationIfForType<short>(notification, e);
-            HandleNotificationIfForType<ushort>(notification, e);
-            HandleNotificationIfForType<int>(notification, e);
-            HandleNotificationIfForType<uint>(notification, e);
-            HandleNotificationIfForType<float>(notification, e);
-            HandleNotificationIfForType<double>(notification, e);
-            HandleNotificationIfForType<string>(notification, e);
+            return new NotificationRegistration(RegisterNotificationHandle<T>(variableName, cycleTime), _client);
         }
 
-        /// <summary>
-        /// Somewhat type-safe handling of the notification if it is for the given type T
-        /// </summary>
-        /// <typeparam name="T">The notification should be handled if the variable is of this type</typeparam>
-        /// <param name="notification">The variable notification info</param>
-        /// <param name="e">ADS notification arguments</param>
-        void HandleNotificationIfForType<T>(VariableNotification notification, AdsNotificationExEventArgs e)
+        private int RegisterNotificationHandle<T>(string variableName, int cycleTime)
         {
-            if (notification.type != typeof(T)) return;
+            cycleTime = cycleTime == -1 ? _defaultCycleTime : cycleTime;
 
-            var subject = (IObserver<T>)notification.subject;
-            try
+            if (typeof(T) == typeof(string))
             {
-                T value = (T)e.Value;
-                subject.OnNext(value);
+                return _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay,
+                    null,
+                    typeof(T), new[] { 256 });
             }
-            catch (Exception ex)
-            {
-                subject.OnError(ex);
-            }
+            return _client.AddDeviceNotificationEx(variableName, AdsTransMode.OnChange, cycleTime, _maxDelay,
+                null, typeof(T));
         }
 
         /// <summary>
@@ -237,6 +183,26 @@ namespace TwinRx
             {
                 _client.WriteAny(variableHandle, value);
             }
+        }
+    }
+
+    /**
+     * IDisposable for ADS notification registrations
+     **/
+    class NotificationRegistration : IDisposable
+    {
+        public int HandleId { get; private set; }
+        private readonly TcAdsClient _client;
+
+        public NotificationRegistration(int handleId, TcAdsClient client)
+        {
+            HandleId = handleId;
+            _client = client;
+        }
+
+        public void Dispose()
+        {
+            _client.DeleteDeviceNotification(HandleId);
         }
     }
 }
