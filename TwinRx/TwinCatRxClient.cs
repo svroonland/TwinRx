@@ -4,6 +4,7 @@ using System.Reactive;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Reactive.Subjects;
 using TwinCAT.Ads;
 
 namespace TwinRx
@@ -13,10 +14,11 @@ namespace TwinRx
     /// </summary>
     public class TwinCatRxClient
     {
-        private readonly TcAdsClient _client;
+        private TcAdsClient _client;
         private readonly int _defaultCycleTime;
         private readonly int _maxDelay;
-        private readonly IObservable<EventPattern<AdsNotificationExEventArgs>> _notifications;
+        private IObservable<EventPattern<AdsNotificationExEventArgs>> _notifications;
+        readonly Subject<Unit> _reconnectEvents = new Subject<Unit>();
 
         /// <summary>
         /// Constructor
@@ -26,19 +28,40 @@ namespace TwinRx
         /// <param name="maxDelay">Maximum ADS delay</param>
         public TwinCatRxClient(TcAdsClient client, int defaultCycleTime = 100, int maxDelay = 100)
         {
-            _client = client;
             _defaultCycleTime = defaultCycleTime;
             _maxDelay = maxDelay;
 
-            client.Synchronize = false; // This makes notifications come in on a ThreadPool thread instead of the UI thread
+            OnIninitialize(client);
+        }
+
+        private void OnIninitialize(TcAdsClient client)
+        {
+            _client = client;
+            _client.Synchronize = false; // This makes notifications come in on a ThreadPool thread instead of the UI thread
 
             _notifications = Observable.FromEventPattern<AdsNotificationExEventHandler, AdsNotificationExEventArgs>(
-h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
+                h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
+        }
+
+        /// <summary>
+        /// Re-register all ADS notifications upon a new TcAdsClient without having to recreate PLC variable observables
+        /// </summary>
+        /// <remarks>
+        /// Use after a lost ADS connection has been established and a new client connection is established. Existing notifications are
+        /// unregistered, ignoring any exceptions on the old client
+        /// </remarks> 
+        /// <param name="client">A new TwinCAT ADS client. It should be connected</param>
+        public void Reconnect(TcAdsClient client)
+        {
+            OnIninitialize(client);
+            _reconnectEvents.OnNext(Unit.Default);
         }
 
         /// <summary>
         /// Creates an Observable for a PLC variable
+        /// </summary>
         /// 
+        /// <remarks>
         /// Values are emitted when the PLC variable changes, with a minimum interval of `cycleTime` ms.
         /// 
         /// Created observables are ReplaySubjects, Subjects that always replay the latest value to new subscribers. This
@@ -53,6 +76,8 @@ h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
         /// Depending on the client's usage pattern, it's recommended to dispose any subscriptions. Alternatively
         /// they will be disposed when the application exists.
         /// 
+        /// When Reconnect() is called, the ADS notification is unregistered and reregistered.
+        /// 
         /// Supported PLC variable types are, together with their .NET types:
         /// * BOOL (bool)
         /// * BYTE (byte)
@@ -65,19 +90,25 @@ h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
         /// * REAL (float)
         /// * LREAL (double)
         /// * STRING (string)
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
+        /// </remarks>
+        /// <typeparam name="T">.NET type of the variable</typeparam>
         /// <param name="variableName">The full name of the PLC variable, i.e. "MAIN.var1"</param>
         /// <param name="cycleTime">Interval at which the ADS router will check the variable for changes (optional)</param>
-        /// <returns>The BehaviorSubject as IObservable</returns>
+        /// <returns>Observable that emits when the PLC variable changes</returns>
         public IObservable<T> ObservableFor<T>(string variableName, int cycleTime = -1)
         {
             EnsureTypeIsSupported<T>();
 
-            return Observable.Using(() => CreateNotificationRegistration<T>(variableName, cycleTime),
+            var createObservable = new Func<IObservable<T>>(() => Observable.Using(() => CreateNotificationRegistration<T>(variableName, cycleTime),
                 r =>
                     _notifications.Select(e => e.EventArgs).Where(e => e.NotificationHandle == r.HandleId)
-                        .Select(e => (T) e.Value)).Replay().RefCount();
+                        .Select(e => (T) e.Value)).Replay().RefCount());
+
+            // Create now and recreate the observable for every reconnect. The TakeUntil takes care of proper disposal after a reconnect
+            return _reconnectEvents.StartWith(Unit.Default)
+                .Select(_ => createObservable().TakeUntil(_reconnectEvents))
+                // Make sure the previous observable is ended at a reconnect
+                .Concat();
         }
 
         private static void EnsureTypeIsSupported<T>()
@@ -188,11 +219,13 @@ h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
 
     /**
      * IDisposable for ADS notification registrations
+     * 
+     * When disposed, deletes the ADS notification
      **/
     class NotificationRegistration : IDisposable
     {
         public int HandleId { get; private set; }
-        private readonly TcAdsClient _client;
+        private TcAdsClient _client;
 
         public NotificationRegistration(int handleId, TcAdsClient client)
         {
@@ -202,7 +235,18 @@ h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
 
         public void Dispose()
         {
-            _client.DeleteDeviceNotification(HandleId);
+            try
+            {
+                _client.DeleteDeviceNotification(HandleId);
+            }
+            catch
+            {
+                // ignored. An exception may happen when the ADS connection is lost
+            }
+            finally
+            {
+                _client = null;
+            }
         }
     }
 }
