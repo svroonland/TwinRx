@@ -55,7 +55,7 @@ namespace TwinRx
             _client.Synchronize = false; // This makes notifications come in on a ThreadPool thread instead of the UI thread
 
             _notifications = Observable.FromEventPattern<AdsNotificationExEventHandler, AdsNotificationExEventArgs>(
-                h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h);
+                h => _client.AdsNotificationEx += h, h => _client.AdsNotificationEx -= h).Publish().RefCount();
         }
 
         /// <summary>
@@ -120,9 +120,9 @@ namespace TwinRx
                             .Select(e => e.EventArgs)
                             .Where(e => e.NotificationHandle == r.HandleId)
                             .Select(e => (T)e.Value)
+                            .Replay()
+                            .RefCount()
                 )
-                .Replay()
-                .RefCount()
                 .RecreateOn(_reconnectEvents);
         }
 
@@ -144,7 +144,7 @@ namespace TwinRx
 
             if (!supportedTypes.Contains(typeof(T)))
             {
-                throw new InvalidOperationException("Variables of type " + typeof(T) + " are not supported");
+                throw new ArgumentException("Variables of type " + typeof(T) + " are not supported");
             }
         }
 
@@ -207,13 +207,14 @@ namespace TwinRx
         {
             return Observable.Start(() =>
             {
+                int handle = _client.CreateVariableHandle(variableName);
                 try
                 {
-                    WriteWithHandle(_client.CreateVariableHandle(variableName), value);
+                    WriteWithHandle(handle, value);
                 }
                 finally
                 {
-                    _client.DeleteVariableHandle(_client.CreateVariableHandle(variableName));
+                    _client.DeleteVariableHandle(handle);
                 }
             }, scheduler ?? Scheduler.Default);
         }
