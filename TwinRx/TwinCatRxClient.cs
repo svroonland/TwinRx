@@ -11,6 +11,15 @@ namespace TwinRx
 {
     /// <summary>
     /// Wrapper around a TwinCAT ADS client to support TwinCAT PLC variables as Rx Observables
+    /// 
+    /// <example>
+    /// <code>
+    /// TcAdsClient adsClient; // A connected TcAdsClient
+    /// TwinCatRxClient client = new TwinCatRxClient(client);
+    /// 
+    /// var myObservable = client.ObservableFor&lt;short&gt;
+    /// </code>
+    /// </example>
     /// </summary>
     public class TwinCatRxClient
     {
@@ -99,16 +108,16 @@ namespace TwinRx
         {
             EnsureTypeIsSupported<T>();
 
-            var createObservable = new Func<IObservable<T>>(() => Observable.Using(() => CreateNotificationRegistration<T>(variableName, cycleTime),
-                r =>
-                    _notifications.Select(e => e.EventArgs).Where(e => e.NotificationHandle == r.HandleId)
-                        .Select(e => (T) e.Value)).Replay().RefCount());
-
-            // Create now and recreate the observable for every reconnect. The TakeUntil takes care of proper disposal after a reconnect
-            return _reconnectEvents.StartWith(Unit.Default)
-                .Select(_ => createObservable().TakeUntil(_reconnectEvents))
-                // Make sure the previous observable is ended at a reconnect
-                .Concat();
+            return Observable.Using(
+                    () => CreateNotificationRegistration<T>(variableName, cycleTime),
+                    r => _notifications
+                            .Select(e => e.EventArgs)
+                            .Where(e => e.NotificationHandle == r.HandleId)
+                            .Select(e => (T)e.Value)
+                )
+                .Replay()
+                .RefCount()
+                .RecreateOn(_reconnectEvents);
         }
 
         private static void EnsureTypeIsSupported<T>()
@@ -214,6 +223,24 @@ namespace TwinRx
             {
                 _client.WriteAny(variableHandle, value);
             }
+        }
+    }
+
+    public static class ObservableExtensions
+    {
+        /// <summary>
+        /// Recreate the `source` observable on every event emitted in `trigger`
+        /// </summary>
+        /// <typeparam name="T">Type of source observable</typeparam>
+        /// <typeparam name="TTrigger">Type of trigger observable</typeparam>
+        /// <param name="source">Source observable</param>
+        /// <param name="trigger">Trigger observable</param>
+        /// <returns></returns>
+        public static IObservable<T> RecreateOn<T, TTrigger>(this IObservable<T> source, IObservable<TTrigger> trigger)
+        {
+            return trigger.StartWith(default(TTrigger))
+                .Select(_ => source.TakeUntil(trigger))
+                .Concat();
         }
     }
 
