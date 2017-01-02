@@ -19,7 +19,8 @@ namespace TestApplication
 
             var client = new TwinCatRxClient(adsClient);
 
-            var counter = client.ObservableFor<short>("MAIN.var1", 2000);
+            var counter = client.ObservableFor<short>("MAIN.var1", 200);
+            var subscription = counter.Subscribe(v => Console.WriteLine("Last 10 values were:" + String.Join(" - ", v)));
 
             //// Print out 10 values at a time
             //var buffered = counter.Buffer(10);
@@ -40,34 +41,40 @@ namespace TestApplication
             //// Write a value to the PLC periodically
             //var valueEverySecond = Observable
             //    .Interval(TimeSpan.FromSeconds(1))
-            //    .Select(i => (short) i);
+            //    .Select(i => (short)i);
             //var writer = client.StreamTo("MAIN.var3", valueEverySecond);
 
             //// Only even ones
-            //var evens = client.ObservableFor<short>("MAIN.var4").Where(i => i%2 == 0);
+            //var evens = client.ObservableFor<short>("MAIN.var4").Where(i => i % 2 == 0);
             //var evensWithTimestamp = evens
             //    .Timestamp()
             //    .Zip(evens.TimeInterval(), (valWithTimestamp, interval) => new { val = "Even value is " + valWithTimestamp, interval });
             //evensWithTimestamp.Subscribe(Console.WriteLine);
 
+            Thread.Sleep(3000);
 
-            Thread.Sleep(1500);
+            ////// Print out each value as it changes
+            //counter.Timestamp().Subscribe(v => Console.WriteLine("Variable is now:" + v + " on " + Thread.CurrentThread.ManagedThreadId));
 
-            // Print out each value as it changes
-            counter.Timestamp().Subscribe(v => Console.WriteLine("Variable is now:" + v + " on " + Thread.CurrentThread.ManagedThreadId));
-
-            Thread.Sleep(5000);
-            Console.WriteLine("Subscribing second notifier");
-            counter.Timestamp().Subscribe(v => Console.WriteLine("Variable 2 is now:" + v + " on " + Thread.CurrentThread.ManagedThreadId));
-
-
-            client.Write("MAIN.var2", "blabla!").Subscribe(_ => Console.WriteLine("Done writing on thread " + Thread.CurrentThread.ManagedThreadId));
+            //Thread.Sleep(5000);
+            //Console.WriteLine("Subscribing second notifier");
+            //counter.Timestamp().Subscribe(v => Console.WriteLine("Variable 2 is now:" + v + " on " + Thread.CurrentThread.ManagedThreadId));
 
 
+            //client.Write("MAIN.var2", "blabla!").Subscribe(_ => Console.WriteLine("Done writing on thread " + Thread.CurrentThread.ManagedThreadId));
 
+            Console.WriteLine("Disposing ADS client and reconnecting");
             adsClient.Dispose();
 
-            client.Write("MAIN.var2", "blabla!").Subscribe(_ => Console.WriteLine("Done writing on thread " + Thread.CurrentThread.ManagedThreadId), e => Console.WriteLine("Exception during writing!" + e));
+
+            adsClient = new TcAdsClient();
+            adsClient.Connect(801);
+            client.Reconnect(adsClient);
+
+            Thread.Sleep(3000);
+
+            subscription.Dispose();
+            Console.WriteLine("Disposing again");
 
             Console.WriteLine("Connected, press key to exit");
             Console.ReadKey();

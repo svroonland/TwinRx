@@ -17,7 +17,13 @@ namespace TwinRx
     /// TcAdsClient adsClient; // A connected TcAdsClient
     /// TwinCatRxClient client = new TwinCatRxClient(client);
     /// 
-    /// var myObservable = client.ObservableFor&lt;short&gt;
+    /// var myObservable = client.ObservableFor&lt;short&gt;("MAIN.myVar"); // Set up an ADS notification for the variable "myVar" in the MAIN program, of type INT
+    /// 
+    /// // Perform desired transformations and combinations on the observable
+    /// var transformed = myObservable.Where(x => x % 10 == 0).Select(x => 20 * x);
+    /// 
+    /// // Subscribe to the observable to perform side-effects
+    /// transformed.Subscribe(x => Console.WriteLine("Current value of myVar is: " + x);
     /// </code>
     /// </example>
     /// </summary>
@@ -222,57 +228,6 @@ namespace TwinRx
             else
             {
                 _client.WriteAny(variableHandle, value);
-            }
-        }
-    }
-
-    public static class ObservableExtensions
-    {
-        /// <summary>
-        /// Recreate the `source` observable on every event emitted in `trigger`
-        /// </summary>
-        /// <typeparam name="T">Type of source observable</typeparam>
-        /// <typeparam name="TTrigger">Type of trigger observable</typeparam>
-        /// <param name="source">Source observable</param>
-        /// <param name="trigger">Trigger observable</param>
-        /// <returns></returns>
-        public static IObservable<T> RecreateOn<T, TTrigger>(this IObservable<T> source, IObservable<TTrigger> trigger)
-        {
-            return trigger.StartWith(default(TTrigger))
-                .Select(_ => source.TakeUntil(trigger))
-                .Concat();
-        }
-    }
-
-    /**
-     * IDisposable for ADS notification registrations
-     * 
-     * When disposed, deletes the ADS notification
-     **/
-    class NotificationRegistration : IDisposable
-    {
-        public int HandleId { get; private set; }
-        private TcAdsClient _client;
-
-        public NotificationRegistration(int handleId, TcAdsClient client)
-        {
-            HandleId = handleId;
-            _client = client;
-        }
-
-        public void Dispose()
-        {
-            try
-            {
-                _client.DeleteDeviceNotification(HandleId);
-            }
-            catch
-            {
-                // ignored. An exception may happen when the ADS connection is lost
-            }
-            finally
-            {
-                _client = null;
             }
         }
     }
