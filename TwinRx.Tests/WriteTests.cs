@@ -39,5 +39,20 @@ namespace TwinRx.Tests
             Assert.Equal(3, observer.LastReceivedValue);
         }
 
+        [Fact]
+        public void StringValueWritten()
+        {
+            // Create an observable for a PLC-updated variable
+            client.Write("MAIN.var2", "abc");
+            var plcVar = client.ObservableFor<string>("MAIN.var2", 100);
+
+            var observer = new TestObserver<string>();
+            plcVar.Subscribe(observer);
+
+            client.Write("MAIN.var2", "abcdef");
+
+            Assert.True(observer.HasReceivedValue());
+            Assert.Equal("abcdef", observer.LastReceivedValue);
+        }
     }
 }

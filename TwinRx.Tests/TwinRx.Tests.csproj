@@ -91,6 +91,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="StreamTests.cs" />
     <Compile Include="WriteTests.cs" />
     <Compile Include="ObservableForTests.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
