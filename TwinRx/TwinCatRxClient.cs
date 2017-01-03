@@ -117,9 +117,8 @@ namespace TwinRx
             return Observable.Using(
                     () => CreateNotificationRegistration<T>(variableName, cycleTime),
                     r => _notifications
-                            .Select(e => e.EventArgs)
-                            .Where(e => e.NotificationHandle == r.HandleId)
-                            .Select(e => (T)e.Value)
+                            .Where(e => e.EventArgs.NotificationHandle == r.HandleId)
+                            .Select(e => (T)e.EventArgs.Value)
                             .Replay()
                             .RefCount()
                 )
@@ -203,20 +202,9 @@ namespace TwinRx
         /// <param name="variableName">Name of the PLC variable</param>
         /// <param name="value">Value to write</param>
         /// <param name="scheduler">Scheduler to execute the write to, by default uses the system's default scheduler</param>
-        public IObservable<Unit> Write<T>(string variableName, T value, IScheduler scheduler = null)
+        public IDisposable Write<T>(string variableName, T value, IScheduler scheduler = null)
         {
-            return Observable.Start(() =>
-            {
-                int handle = _client.CreateVariableHandle(variableName);
-                try
-                {
-                    WriteWithHandle(handle, value);
-                }
-                finally
-                {
-                    _client.DeleteVariableHandle(handle);
-                }
-            }, scheduler ?? Scheduler.Default);
+            return StreamTo(variableName, Observable.Return(value), scheduler);
         }
 
         private void WriteWithHandle<T>(int variableHandle, T value)
