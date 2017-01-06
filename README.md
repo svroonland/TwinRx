@@ -7,6 +7,7 @@ TwinRx is a library for connecting a .NET application with a Beckhoff TwinCAT PL
 * Create an `IObservable` for a PLC variable, bringing changes to the PLC variable into the Reactive world.
 * Make use of Rx's extensive event processing and querying capabilities to transform the observable into events of interest. 
 * Stream (write) an existing `IObservable` to a PLC variable
+* Transparently reregister the notifications after a connection loss
 
 ## Requires
 * .NET 4.5 or higher
