@@ -2,7 +2,7 @@
 <package >
   <metadata>
     <id>TwinRx</id>
-    <version>1.$version$</version>
+    <version>$version$</version>
     <title>Library for connecting with Beckhoff TwinCAT PLC via Reactive Extensions (Rx) over ADS</title>
     <authors>S. Vroonland</authors>
     <owners>S. Vroonland</owners>
