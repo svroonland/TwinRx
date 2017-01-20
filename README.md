@@ -11,8 +11,10 @@ TwinRx is a library for connecting a .NET application with a Beckhoff TwinCAT PL
 
 ## Requires
 * .NET 4.5 or higher
-* System.Reactive extensions: https://msdn.microsoft.com/library/hh242985.aspx
 * Beckhoff TwinCAT PLC (v2 or v3)
+
+## Installation
+* Install the NuGet package "TwinRx" using the NuGet Package Manager in Visual Studio
 
 ## Example code
 ```c#
