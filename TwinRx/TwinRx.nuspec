@@ -7,7 +7,7 @@
     <authors>S. Vroonland</authors>
     <owners>S. Vroonland</owners>
     <licenseUrl>https://raw.githubusercontent.com/svroonland/TwinRx/master/LICENSE</licenseUrl>
-    <projectUrl>http://PROJECT_URL_HERE_OR_DELETE_THIS_LINE</projectUrl>
+    <projectUrl>https://github.com/svroonland/TwinRx</projectUrl>
     <iconUrl>https://github.com/svroonland/TwinRx</iconUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <summary>TwinRx is a library for connecting a .NET application with a Beckhoff TwinCAT PLC program via Reactive Extensions (Rx) over ADS.</summary>
@@ -19,8 +19,9 @@
       * Create an IObservable for a PLC variable, bringing changes to the PLC variable into the Reactive world.
       * Make use of Rx's extensive event processing and querying capabilities to transform the observable into events of interest.
       * Stream (write) an existing IObservable to a PLC variable
+      * Transparently reregister the notifications after a connection loss
     </description>
-    <releaseNotes>First NuGet package</releaseNotes>
+    <releaseNotes></releaseNotes>
     <copyright>Copyright 2017</copyright>
     <tags>Rx System.Reactive TwinCAT ADS</tags>
   </metadata>
