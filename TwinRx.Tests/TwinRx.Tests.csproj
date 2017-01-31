@@ -92,6 +92,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="MyPlcStruct.cs" />
     <Compile Include="StreamTests.cs" />
     <Compile Include="WriteTests.cs" />
     <Compile Include="ObservableForTests.cs" />

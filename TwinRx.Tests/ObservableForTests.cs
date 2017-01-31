@@ -12,7 +12,7 @@ namespace TwinRx.Tests
         public ObservableForTests()
         {
             adsClient = new TcAdsClient();
-            adsClient.Connect(801);
+            adsClient.Connect(851);
 
             client = new TwinCatRxClient(adsClient);
         }
@@ -67,18 +67,27 @@ namespace TwinRx.Tests
         }
 
         [Fact]
-        public void ExceptionForUnsupportedType()
-        {
-            Assert.Throws<ArgumentException>(() => client.ObservableFor<long>("MAIN.var1", 100));
-        }
-
-        [Fact]
         public void StringObservable()
         {
             // Create an observable for a PLC-updated variable
             var observable = client.ObservableFor<string>("MAIN.var2", 100);
 
             var observer = new TestObserver<string>();
+            observable.Subscribe(observer);
+
+            Assert.True(observer.HasReceivedValue());
+        }
+
+        // Uncomment for TwinCAT2
+        // [StructLayout(LayoutKind.Sequential, Pack = 1)]
+
+        [Fact]
+        public void StructObservable()
+        {
+            // Create an observable for a PLC-updated variable
+            var observable = client.ObservableFor<MyPlcStruct>("MAIN.var5", 100);
+
+            var observer = new TestObserver<MyPlcStruct>();
             observable.Subscribe(observer);
 
             Assert.True(observer.HasReceivedValue());

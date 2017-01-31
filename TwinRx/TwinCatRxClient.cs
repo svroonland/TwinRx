@@ -105,6 +105,9 @@ namespace TwinRx
         /// * REAL (float)
         /// * LREAL (double)
         /// * STRING (string)
+        /// * Structs (Data Unit Types / DUTs) of the above types
+        /// 
+        /// Using this method with data types that cannot be marshaled over ADS will raise an exception when subscribing to the returned Observable.
         /// </remarks>
         /// <typeparam name="T">.NET type of the variable</typeparam>
         /// <param name="variableName">The full name of the PLC variable, i.e. "MAIN.var1"</param>
@@ -112,8 +115,6 @@ namespace TwinRx
         /// <returns>Observable that emits when the PLC variable changes</returns>
         public IObservable<T> ObservableFor<T>(string variableName, int cycleTime = -1)
         {
-            EnsureTypeIsSupported<T>();
-
             return Observable.Using(
                     () => CreateNotificationRegistration<T>(variableName, cycleTime),
                     r => _notifications
@@ -123,28 +124,6 @@ namespace TwinRx
                             .RefCount()
                 )
                 .RecreateOn(_reconnectEvents);
-        }
-
-        private static void EnsureTypeIsSupported<T>()
-        {
-            var supportedTypes = new List<Type>()
-            {
-                typeof (bool),
-                typeof(byte),
-                typeof(sbyte),
-                typeof (short),
-                typeof (ushort),
-                typeof (int),
-                typeof (uint),
-                typeof (float),
-                typeof (double),
-                typeof (string)
-            };
-
-            if (!supportedTypes.Contains(typeof(T)))
-            {
-                throw new ArgumentException("Variables of type " + typeof(T) + " are not supported");
-            }
         }
 
         private NotificationRegistration CreateNotificationRegistration<T>(string variableName, int cycleTime)
@@ -178,8 +157,6 @@ namespace TwinRx
         /// <returns>An IDisposable that can be disposed when it's no longer desired to write the values in the observable</returns>
         public IDisposable StreamTo<T>(string variableName, IObservable<T> observable, IScheduler scheduler = null)
         {
-            EnsureTypeIsSupported<T>();
-
             scheduler = scheduler ?? Scheduler.Immediate;
 
             int variableHandle = _client.CreateVariableHandle(variableName);
