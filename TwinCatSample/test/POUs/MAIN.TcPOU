@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4018.9">
+  <POU Name="MAIN" Id="{40c3a0f1-1c63-4b0b-938f-e6b3055bd077}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+	var1: INT;
+	var2: STRING(80) := 'This is a default value';
+	var3: INT := 0;
+	var4: INT := 0;
+	var5: MyStruct;
+	var6: MyStruct;
+
+	counter: INT := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[var1 := var1 + 3;
+
+counter := counter + 1;
+
+IF counter = 100 THEN
+	counter := 0;
+	var4 := var4 + 1;
+	var5.myBool := NOT var5.myBool;
+	var5.myInt := var5.myInt + 1;
+END_IF]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

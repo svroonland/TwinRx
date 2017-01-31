@@ -12,7 +12,7 @@ namespace TwinRx.Tests
         public WriteTests()
         {
             adsClient = new TcAdsClient();
-            adsClient.Connect(801);
+            adsClient.Connect(851);
 
             client = new TwinCatRxClient(adsClient);
         }
@@ -53,6 +53,26 @@ namespace TwinRx.Tests
 
             Assert.True(observer.HasReceivedValue());
             Assert.Equal("abcdef", observer.LastReceivedValue);
+        }
+
+        [Fact]
+        public void StructValueWritten()
+        {
+            var var6 = "MAIN.var6";
+
+            // Reset 
+            client.Write(var6, new MyPlcStruct {myBool = false, myInt = 0});
+
+            var plcVar = client.ObservableFor<MyPlcStruct>(var6, 100);
+
+            var observer = new TestObserver<MyPlcStruct>();
+            plcVar.Subscribe(observer);
+
+            var myPlcStruct = new MyPlcStruct {myBool = true, myInt = 1};
+            client.Write(var6, myPlcStruct);
+
+            Assert.True(observer.HasReceivedValue());
+            Assert.Equal(myPlcStruct, observer.LastReceivedValue);
         }
     }
 }

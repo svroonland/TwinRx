@@ -1,11 +1,22 @@
 ﻿using System;
 using System.Reactive.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using TwinCAT.Ads;
 using TwinRx;
 
 namespace TestApplication
 {
+    // Uncomment for TwinCAT2
+    // [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct MyStruct
+    {
+        public short myInt;
+
+        [MarshalAs(UnmanagedType.I1)]
+        public bool myBool;
+    }
+
     /**
      * Sample making use of test.pro
      **/
@@ -15,12 +26,12 @@ namespace TestApplication
         static void Main(string[] args)
         {
             var adsClient = new TcAdsClient();
-            adsClient.Connect(801); // 801 for TwinCAT 2, 851 for TwinCAT 3
+            adsClient.Connect(851); // 801 for TwinCAT 2, 851 for TwinCAT 3
 
             var client = new TwinCatRxClient(adsClient);
 
-            var counter = client.ObservableFor<short>("MAIN.var1", 200);
-            var subscription = counter.Subscribe(v => Console.WriteLine("Last 10 values were:" + String.Join(" - ", v)));
+            var counter = client.ObservableFor<MyStruct>("MAIN.var5", 200);
+            var subscription = counter.Select(c => c.myInt + ":" + c.myBool).Subscribe(v => Console.WriteLine("Last 10 values were:" + String.Join(" - ", v)));
 
             //// Print out 10 values at a time
             //var buffered = counter.Buffer(10);
@@ -61,14 +72,14 @@ namespace TestApplication
             //counter.Timestamp().Subscribe(v => Console.WriteLine("Variable 2 is now:" + v + " on " + Thread.CurrentThread.ManagedThreadId));
 
 
-            //client.Write("MAIN.var2", "blabla!").Subscribe(_ => Console.WriteLine("Done writing on thread " + Thread.CurrentThread.ManagedThreadId));
+            //client.Write<long>("MAIN.var1", 1234); //"blabla!").Subscribe(_ => Console.WriteLine("Done writing on thread " + Thread.CurrentThread.ManagedThreadId));
 
             Console.WriteLine("Disposing ADS client and reconnecting");
             adsClient.Dispose();
 
 
             adsClient = new TcAdsClient();
-            adsClient.Connect(801);
+            adsClient.Connect(851);
             client.Reconnect(adsClient);
 
             Thread.Sleep(3000);

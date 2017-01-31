@@ -13,7 +13,7 @@ namespace TwinRx.Tests
         public StreamTests()
         {
             adsClient = new TcAdsClient();
-            adsClient.Connect(801);
+            adsClient.Connect(851);
 
             client = new TwinCatRxClient(adsClient);
         }
