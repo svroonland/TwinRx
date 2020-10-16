@@ -1,3 +1,8 @@
+## NOTE
+_As of version 4.2.172.0, the Beckhoff ADS library for .NET also includes support for Reactive Extensions, making this library obsolete. See here for more information: https://infosys.beckhoff.com/english.php?content=../content/1033/tc3_adsnetref/7312584843.html&id=_
+
+---
+
 [![Build status](https://ci.appveyor.com/api/projects/status/edcc4iss127v7vnp?svg=true)](https://ci.appveyor.com/project/svroonland/twinrx)
 [![NuGet version](https://badge.fury.io/nu/twinrx.svg)](https://badge.fury.io/nu/twinrx)
 
